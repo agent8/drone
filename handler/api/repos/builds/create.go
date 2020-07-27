@@ -32,15 +32,23 @@ func HandleCreate(
 	repos core.RepositoryStore,
 	commits core.CommitService,
 	triggerer core.Triggerer,
+
 ) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var (
-			ctx       = r.Context()
-			namespace = chi.URLParam(r, "owner")
-			name      = chi.URLParam(r, "name")
-			sha       = r.FormValue("commit")
-			branch    = r.FormValue("branch")
-			user, _   = request.UserFrom(ctx)
+			ctx          = r.Context()
+			namespace    = chi.URLParam(r, "owner")
+			name         = chi.URLParam(r, "name")
+			sha          = r.FormValue("commit")
+			branch       = r.FormValue("branch")
+			sourceBranch = r.FormValue("source_branch")
+			targetBranch = r.FormValue("target_branch")
+			ref          = r.FormValue("ref")
+			event        = r.FormValue("event")
+			trigger      = r.FormValue("trigger")
+			link         = r.FormValue("link")
+			title        = r.FormValue("title")
+			user, _      = request.UserFrom(ctx)
 		)
 
 		repo, err := repos.FindName(ctx, namespace, name)
@@ -60,8 +68,16 @@ func HandleCreate(
 		if branch == "" {
 			branch = repo.Branch
 		}
+		if sourceBranch == "" {
+			sourceBranch = branch
+		}
+		if targetBranch == "" {
+			targetBranch = branch
+		}
 		// expand the branch to a git reference.
-		ref := scm.ExpandRef(branch, "refs/heads")
+		if ref == "" {
+			ref = scm.ExpandRef(branch, "refs/heads")
+		}
 
 		var commit *core.Commit
 		if sha != "" {
@@ -73,24 +89,33 @@ func HandleCreate(
 			render.NotFound(w, err)
 			return
 		}
+		if event == "" {
+			event = core.EventCustom
+		}
+		if trigger == "" {
+			trigger = user.Login
+		}
+		if link == "" {
+			link = commit.Link
+		}
 
 		hook := &core.Hook{
-			Trigger:      user.Login,
-			Event:        core.EventCustom,
-			Link:         commit.Link,
+			Trigger:      trigger,
+			Event:        event,
+			Link:         link,
 			Timestamp:    commit.Author.Date,
-			Title:        "", // we expect this to be empty.
+			Title:        title,
 			Message:      commit.Message,
 			Before:       commit.Sha,
 			After:        commit.Sha,
 			Ref:          ref,
-			Source:       branch,
-			Target:       branch,
+			Source:       sourceBranch,
+			Target:       targetBranch,
 			Author:       commit.Author.Login,
 			AuthorName:   commit.Author.Name,
 			AuthorEmail:  commit.Author.Email,
 			AuthorAvatar: commit.Author.Avatar,
-			Sender:       user.Login,
+			Sender:       trigger,
 			Params:       map[string]string{},
 		}
 
